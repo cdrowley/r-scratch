@@ -1,0 +1,168 @@
+---
+title: "r-spatial-notes"
+output: 
+  html_document: 
+    toc: yes
+  html_notebook: 
+    toc: yes
+    code_folding: hide
+    theme: readable
+---
+
+## **Load Data**
+
+```{r}
+library(tidyverse)
+library(sf)
+library(mapview) |> suppressPackageStartupMessages()
+mapviewOptions(fgb=FALSE)
+
+nc = read_sf("/usr/local/lib/R/site-library/sf/gpkg/nc.gpkg")
+nc_32119 = st_transform(nc, "EPSG:32119") # NAD83 / North Carolina)
+```
+
+## **Summarise Columns**
+
+```{r}
+nc |> select("BIR74", "AREA") |> summary()
+```
+
+## **Choropleth Map**
+
+```{r}
+ nc_32119 |> select("BIR74") |> plot(graticule=TRUE, axes=TRUE)
+```
+
+## **Faceted Choropleth**
+
+```{r}
+# data prep
+year_labels = c("SID74"="1974 - 1978", "SID79"="1979 - 1984")
+cols = c("SID74", "SID79")
+
+nc_melt = nc_32119 |> select(all_of(cols)) |> pivot_longer(starts_with("SID")) 
+
+# plot
+ggplot() + 
+  geom_sf(data=nc_melt, aes(fill=value), linewidth=0.4) +
+  facet_wrap(~ name, ncol=1, labeller=labeller(name=year_labels)) +
+  scale_y_continuous(breaks=34:36) +
+  scale_fill_gradientn(colors=sf.colors(20)) +
+  theme(panel.grid.major=element_line(color="white"))
+```
+
+## **Interactive Map**
+
+```{r}
+nc_32119 |> mapview(zcol="BIR74", legend=TRUE, col.regions=sf.colors)
+```
+
+## **Rasters**
+
+```{r}
+library(stars)
+set.seed(131)
+
+# data prep
+tif = read_stars(system.file("tif/L7_ETMs.tif", package="stars"))
+first_band = tif[,,,1]
+first_10_cols_rows = first_band[,1:10,1:10]
+points = st_sample(st_as_sfc(st_bbox(first_band)), 3)
+
+# plot
+par(mfrow=c(2, 2), mar=rep(1, 4)) 
+
+# (a)
+image(first_band, main="(a)")
+
+# (b)
+image(
+  first_10_cols_rows
+  , text_values=TRUE
+  , border='grey'
+  , main="(b)"
+)
+
+# (c)
+image(first_band, main="(c)")
+plot(points, add=TRUE, pch=3, col="blue")
+
+# (d)
+image(first_band, main="(d)")
+plot(
+  st_buffer(points, 500)
+  , add=TRUE
+  , pch=3
+  , border='blue'
+  , col=NA
+  , lwd = 2
+)
+```
+
+### **Query at points**
+
+```{r}
+st_extract(first_band, points)
+```
+
+### **Aggregate values within buffers**
+
+```{r}
+plot(aggregate(first_band, st_buffer(points, 500), FUN=mean) |> st_as_sf())
+```
+
+### **Rasterizing county births 1974-1978**
+
+```{r}
+plot(
+  st_rasterize(nc["BIR74"], dx=0.1)
+  , col=sf.colors()
+  , breaks="jenks"
+)
+```
+
+### **Raster Types**
+
+```{r}
+par(mfrow=c(2, 3), mar=c(0.1, 1, 1.1, 1))
+
+# regular grid
+regular = st_make_grid(cellsize=c(1, 1), n=c(5, 4), offset=c(0, 0))
+
+# rotated grid
+d = st_dimensions(x=1:5, y=1:4, .raster=c("x", "y"))
+m = matrix(runif(20), 5, 4)
+
+r = attr(d, "raster")
+r$affine = c(0.2, -0.2)
+attr(d, "raster") = r
+rotated = st_as_stars(r=m, dimensions=d)
+
+# sheared grid
+r = attr(d, "raster")
+r$affine = c(0.1, -0.3)
+attr(d, "raster") = r
+sheared = st_as_stars(r=m, dimensions=d)
+
+# rectilinear grid
+x = c(1.0, 2.0, 3.5, 5.0, 7.0)
+y = c(1.0, 1.5, 3.0, 3.5)
+d = st_dimensions(x=x, y=y, .raster=c("x", "y"))
+rectilinear = st_as_stars(r=m, dimensions=d)
+
+# curvilinear grid
+grd = st_make_grid(
+  cellsize=c(10, 10)
+  , offset=c(-130, 10)
+  , n=c(8,5)
+  , crs=st_crs('OGC:CRS84')
+)
+curvilinear = st_transform(grd, "+proj=laea +lon_0=-70 +lat_0=35")
+
+# plot
+plot(regular, main="regular")
+plot(st_geometry(st_as_sf(rotated)), main = "rotated")
+plot(st_geometry(st_as_sf(sheared)), main = "sheared")
+plot(st_geometry(st_as_sf(rectilinear, as_points=FALSE)), main="rectilinear")
+plot(st_geometry((curvilinear)), main="curvilinear")
+```
