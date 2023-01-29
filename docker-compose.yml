@@ -1,0 +1,15 @@
+# https://davetang.org/muse/2021/04/24/running-rstudio-server-with-docker/
+# to restart rstudio server: launch a shell, cat /etc/os-release, service --status-all, service rstudio-server restart
+services:
+  # gds:
+  #   image: darribas/gds
+  # docker pull rocker/geospatial:latest
+  rstudio:
+    image: rocker/geospatial:latest
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./notebooks:/home/rstudio/notebooks
+    environment:
+      - DISABLE_AUTH=TRUE
+      - ROOT=TRUE
